@@ -1,0 +1,94 @@
+#!/usr/bin/env zsh
+
+function checkDependency
+{
+	echo -n "$1 available on \$PATH: ";
+	command -V "$1" >/dev/null 2>&1  && 
+  	(print -P "%F{green}YES%f"; true) || 
+        (print -P "%F{red}NO%f"; false)
+}
+
+function copy2AndroidTmp
+{
+	adb shell cp $1 /data/local/tmp/
+}
+
+function push2AndroidSDBin
+{
+	adb push $1 /sdcard/bin/$1
+}
+
+function setExecPermissions
+{
+	adb shell chmod 755 $1
+}
+
+function createRSyncConfigFile
+{
+	adb shell [ -f "/sdcard/etc/rsyncd.conf" ] ||
+	(adb shell mkdir -p /sdcard/etc &&
+	 adb shell 'exec >/sdcard/etc/rsyncd.conf && 
+	  	    echo address = 127.0.0.1 && 
+                    echo port = 1873 && 
+                    echo "[root]" && 
+                    echo path = / && 
+                    echo use chroot = false && 
+                    echo read only = false') || (echo "Config file could not be created"; exit 1)
+}
+
+function prepareRSyncBinary
+{
+	( adb shell [ -f "/sdcard/bin/rsync" ] || 
+	( wget -O rsync http://github.com/pts/rsyncbin/raw/master/rsync.rsync4android &&
+	push2AndroidSDBin rsync ) && 
+	copy2AndroidTmp /sdcard/bin/rsync && 
+	setExecPermissions /data/local/tmp/rsync) || (echo "Failed to prepare Rsync binary file"; exit 1)
+}
+
+function checkingDependencies
+{
+	dependencies=('adb' 'wget')
+	MISSING=0
+
+	for dep in $dependencies; do checkDependency $dep || let MISSING+=1; done
+
+	[ "$MISSING" -ne "0" ] && exit 1
+}
+
+function prepareRSyncBinaryAndConfig
+{
+	prepareRSyncBinary	
+	createRSyncConfigFile	
+}
+
+function startRSyncDaemon
+{	
+	checkingDependencies
+	prepareRSyncBinaryAndConfig
+	
+	adb forward tcp:6010 tcp:1873
+	adb shell -t -t /data/local/tmp/rsync --daemon --no-detach --config=/sdcard/etc/rsyncd.conf --log-file=/proc/self/fd/2 &
+}
+
+
+( adb shell ps -A | grep rsync &> /dev/null || startRSyncDaemon ) && echo "RSync server up and running"
+
+#rsync -av --progress --stats rsync://localhost:6010/root/$1 $2
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
